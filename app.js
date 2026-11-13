@@ -72,11 +72,12 @@ function er(lines, opts = {}) {
 }
 function setER(slot, lines, opts) { slot.innerHTML = ''; slot.append(er(lines, opts)); }
 
+const HOUSE = '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>';
 function bar(label, back = true) {
   return el('div', { class: 'bar' },
-    back ? el('button', { class: 'iconbtn', onclick: home, 'aria-label': 'Retour au cahier' }, '← Cahier') : null,
+    back ? el('button', { class: 'iconbtn homebtn', onclick: goHome, 'aria-label': 'Retour au cahier', html: HOUSE + '<span>Cahier</span>' }) : null,
     el('div', { class: 'label' }, label),
-    el('div', { class: 'brand' }, "L'Énigme de la Plume"));
+    el('button', { class: 'iconbtn info', onclick: infoSheet, 'aria-label': 'Infos : installer l\'app' }, 'i'));
 }
 function head(box, title, instr, it) {
   box.append(el('h2', null, title));
@@ -137,7 +138,7 @@ function sealedIndice(box, n, text, gameId) {
     if (!S.done.includes(gameId)) S.done.push(gameId);
     save();
     card.after(el('div', { class: 'actions' },
-      el('button', { class: 'btn', onclick: home }, 'Retour au cahier')));
+      el('button', { class: 'btn', onclick: goHome }, 'Retour au cahier')));
   });
   box.append(card);
 }
@@ -749,7 +750,7 @@ function game6(root) {
           box.append(er(['Pour la question 4, je ne te donnais pas la réponse.', 'Tu la connaissais.']));
           if (!S.done.includes(6)) S.done.push(6);
           save();
-          box.append(el('div', { class: 'actions' }, el('button', { class: 'btn red', onclick: prediction }, 'Mon billet de prédiction'), el('button', { class: 'btn ghost', onclick: home }, 'Retour au cahier')));
+          box.append(el('div', { class: 'actions' }, el('button', { class: 'btn red', onclick: prediction }, 'Mon billet de prédiction'), el('button', { class: 'btn ghost', onclick: goHome }, 'Retour au cahier')));
         }
       }));
     }
@@ -760,6 +761,7 @@ function game6(root) {
    Billet de prédiction & bonus
    ===================================================================== */
 function prediction() {
+  enterSub();
   clear();
   app.append(bar('Dernière page'));
   const box = el('section');
@@ -795,12 +797,13 @@ function prediction() {
     P.why = why.value.trim();
     S.pred = P; save();
     setER(slot, ['Garde ce billet. Montre-le au théâtre.', 'À la fin, compare avec ce que tu as vu.', 'Moi, je ne dis rien. Une plume sait se taire.'], { sign: 'R.AI' });
-    slot.append(el('div', { class: 'actions' }, el('button', { class: 'btn', onclick: home }, 'Retour au cahier')));
+    slot.append(el('div', { class: 'actions' }, el('button', { class: 'btn', onclick: goHome }, 'Retour au cahier')));
   });
   box.append(el('div', { class: 'actions' }, b), slot);
 }
 
 function bonus() {
+  enterSub();
   clear();
   document.body.classList.add('digital');
   app.append(bar('Après le spectacle'));
@@ -857,8 +860,13 @@ const GAMES = [
   [6, 'Le code de la plume', game6]];
 const unlocked = id => id === 1 || S.done.includes(id - 1);
 
+function enterSub() { if (!(history.state && history.state.sub)) history.pushState({ sub: 1 }, ''); }
+function goHome() { if (history.state && history.state.sub) history.back(); else home(); }
+window.addEventListener('popstate', () => home());
+
 function openGame(id) {
   const g = GAMES.find(x => x[0] === id);
+  enterSub();
   clear();
   document.body.classList.toggle('digital', id === 6 && S.revealed);
   app.append(bar('Jeu ' + id));
@@ -867,14 +875,91 @@ function openGame(id) {
   g[2](root);
 }
 
+/* ---------- installation ---------- */
 let deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; });
+const installWatchers = new Set();
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; installWatchers.forEach(f => f()); });
+window.addEventListener('appinstalled', () => {
+  deferredPrompt = null; S.installed = true; save();
+  toast("C'est fait ! La plume est sur ton écran d'accueil.");
+  installWatchers.forEach(f => f());
+});
+async function nativeInstall() {
+  if (!deferredPrompt) return infoSheet();
+  const p = deferredPrompt; deferredPrompt = null;
+  p.prompt();
+  try { await p.userChoice; } catch (e) { /* rien */ }
+  installWatchers.forEach(f => f());
+}
+const SHARE_ICON = '<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#1D2340" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M6 11v9h12v-9"/></svg>';
+const STEPS = {
+  ios: { title: 'Sur iPhone ou iPad', steps: ['Ouvre cette page avec <b>Safari</b>.', `Touche le bouton <b>Partager</b> ${SHARE_ICON} (en bas de l'écran, en haut sur iPad).`, 'Fais défiler et choisis <b>« Sur l\'écran d\'accueil »</b>.', 'Touche <b>« Ajouter »</b>. La plume apparaît sur ton écran !'],
+    it: "Su iPhone: apri la pagina con Safari, tocca il tasto Condividi (il quadrato con la freccia), scegli «Aggiungi alla schermata Home» e poi «Aggiungi»." },
+  android: { title: 'Sur Android', steps: ['Ouvre cette page avec <b>Chrome</b>.', 'Touche le menu <b>⋮</b> en haut à droite.', 'Choisis <b>« Installer l\'application »</b> ou <b>« Ajouter à l\'écran d\'accueil »</b>.', 'Confirme. La plume apparaît sur ton écran !'],
+    it: "Su Android: apri la pagina con Chrome, tocca il menu ⋮ in alto a destra, scegli «Installa app» o «Aggiungi a schermata Home» e conferma." }
+};
+function stepsBlock(k) {
+  const d = STEPS[k];
+  const help = el('div', { class: 'help' }, '🇮🇹 ', d.it);
+  return el('div', { class: 'stepsbox' }, el('b', null, d.title),
+    el('ol', { class: 'steps' }, ...d.steps.map(t => el('li', { html: t }))),
+    el('button', { class: 'helpbtn', onclick: () => help.classList.toggle('open') }, 'Aide (in italiano)'), help);
+}
+function infoSheet() {
+  if (document.querySelector('.sheet-back')) return;
+  const prev = document.activeElement;
+  const back = el('div', { class: 'sheet-back' });
+  const close = () => { back.remove(); document.removeEventListener('keydown', esc); if (prev && prev.focus) prev.focus(); };
+  const esc = e => { if (e.key === 'Escape') close(); };
+  const x = el('button', { class: 'iconbtn', style: 'margin-left:auto', 'aria-label': 'Fermer', onclick: close }, '✕');
+  const panel = el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': "Installer l'app" });
+  panel.append(el('div', { style: 'display:flex;align-items:center;gap:10px' }, el('h2', { style: 'margin:0' }, "Garde le cahier sur ton téléphone"), x));
+  if (isStandalone() || S.installed) {
+    panel.append(el('p', { style: 'margin-top:12px' }, "L'app est déjà installée. Tu la trouves sur ton écran d'accueil, avec la plume."));
+  } else {
+    panel.append(el('p', { style: 'margin-top:12px' }, "Comme une vraie app : une icône sur ton écran, et le cahier marche même sans internet."));
+    if (deferredPrompt) panel.append(el('div', { class: 'actions' }, el('button', { class: 'btn red', onclick: () => { close(); nativeInstall(); } }, "Installer l'app")));
+    const first = isIOS ? 'ios' : 'android', other = isIOS ? 'android' : 'ios';
+    panel.append(stepsBlock(first));
+    panel.append(el('details', { class: 'small' }, el('summary', null, 'Un autre téléphone ?'), stepsBlock(other)));
+  }
+  panel.append(el('h2', null, 'À propos'));
+  panel.append(el('p', { class: 'small' }, "Un cahier de jeux pour le spectacle Cyrano, librement adapté de Cyrano de Bergerac d'Edmond Rostand."));
+  panel.append(el('p', { class: 'small' }, "Rien de ce que tu écris ne quitte ce téléphone : pas de compte, pas de données envoyées."));
+  back.append(panel);
+  back.addEventListener('click', e => { if (e.target === back) close(); });
+  document.addEventListener('keydown', esc);
+  document.body.append(back);
+  x.focus();
+}
+function installCard(dismissable) {
+  const card = el('div', { class: 'card installcard' });
+  function render() {
+    card.innerHTML = '';
+    if (isStandalone() || S.installed || (dismissable && S.hideInstall)) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    card.append(el('div', { style: 'display:flex;gap:12px;align-items:center' },
+      el('img', { src: 'icons/icon-192.png', alt: '', width: '48', height: '48', style: 'border-radius:12px;flex-shrink:0' }),
+      el('div', null, el('b', null, 'Garde le cahier sur ton téléphone'), el('div', { class: 'small muted' }, 'Une icône, et ça marche même sans internet.'))));
+    const acts = el('div', { class: 'actions', style: 'margin:12px 0 0' });
+    if (deferredPrompt) acts.append(el('button', { class: 'btn red', onclick: nativeInstall }, "Installer l'app"));
+    else acts.append(el('button', { class: 'btn', onclick: infoSheet }, 'Comment faire ?'));
+    if (dismissable) acts.append(el('button', { class: 'btn ghost', onclick: () => { S.hideInstall = true; save(); render(); } }, 'Plus tard'));
+    card.append(acts);
+  }
+  installWatchers.add(render);
+  render();
+  return card;
+}
 
 function home() {
   clear();
   document.body.classList.toggle('digital', false);
   app.append(bar('Le cahier', false));
   app.append(el('h1', null, "L'Énigme de la Plume"));
+  app.append(installCard(true));
   if (!S.done.length) app.append(er(['Joue. Écris. Je lis tout.', 'Et peut-être, à la fin, tu sauras qui je suis.']));
   const list = el('div', { class: 'games' });
   GAMES.forEach(([id, t]) => {
@@ -927,8 +1012,7 @@ function home() {
   app.append(bb);
 
   const foot = el('div', { class: 'small muted', style: 'margin-top:28px;display:flex;flex-direction:column;gap:10px' });
-  if (deferredPrompt) foot.append(el('button', { class: 'btn ghost', onclick: async () => { deferredPrompt.prompt(); deferredPrompt = null; } }, "Installer l'app sur mon téléphone"));
-  else foot.append(el('div', null, 'Pour l\'avoir sur ton téléphone : menu du navigateur → « Ajouter à l\'écran d\'accueil ».'));
+  foot.append(el('button', { class: 'btn ghost', onclick: infoSheet }, "Installer l'app sur mon téléphone"));
   foot.append(el('div', null, 'Rien de ce que tu écris ne quitte ce téléphone.'));
   let armed = false;
   const reset = el('button', { class: 'helpbtn' }, 'Tout recommencer');
@@ -948,6 +1032,7 @@ function intro() {
   box.append(el('p', { style: 'text-align:center' }, "Ce cahier devait être vide. Mais quelqu'un a déjà écrit dedans."));
   box.append(er(['Bonjour, toi.', 'Tu ne me connais pas. Pas encore.', "J'aime les mots qui ont du cœur.", 'Les mots paresseux… un peu moins.'], { paper: true }));
   box.append(el('div', { class: 'actions', style: 'justify-content:center' }, el('button', { class: 'btn red', onclick: () => { S.seen = true; save(); home(); } }, 'Ouvrir le cahier')));
+  box.append(installCard(false));
   app.append(box);
 }
 
